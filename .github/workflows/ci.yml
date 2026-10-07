@@ -44,20 +44,18 @@ jobs:
           KEYSTORE_B64: ${{ secrets.YAKUYOMI_KEYSTORE_B64 }}
           STORE_PASSWORD: ${{ secrets.YAKUYOMI_STORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.YAKUYOMI_KEY_ALIAS }}
-          KEY_PASSWORD: ${{ secrets.YAKUYOMI_KEY_PASSWORD }}
         run: |
           set -euo pipefail
           test -n "$KEYSTORE_B64"
           test -n "$STORE_PASSWORD"
           test -n "$KEY_ALIAS"
-          test -n "$KEY_PASSWORD"
 
           printf '%s' "$KEYSTORE_B64" | base64 -d > "$GITHUB_WORKSPACE/yakuyomi-release.jks"
           cat > "$GITHUB_WORKSPACE/keystore.properties" <<EOF
           storeFile=../yakuyomi-release.jks
           storePassword=$STORE_PASSWORD
           keyAlias=$KEY_ALIAS
-          keyPassword=$KEY_PASSWORD
+          keyPassword=$STORE_PASSWORD
           EOF
 
       - name: Build signed release APK
