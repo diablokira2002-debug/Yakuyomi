@@ -7,7 +7,6 @@ import android.graphics.Color
 import android.os.Build
 import android.util.Base64
 import com.hippo.unifile.UniFile
-import eu.kanade.tachiyomi.BuildConfig
 import eu.kanade.tachiyomi.crash.TraceLog
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -67,25 +66,19 @@ class PageTranslator(private val context: Context) {
      */
     private val manifestMutex = Mutex()
 
-    /** key：優先設定頁（BYOK）；空白時 fallback build-time key（冒煙測試）。 */
-    private fun apiKey(): String =
-        translationPreferences.activeApiKey().ifBlank {
-            // baked key 只是 DeepSeek 的冒煙測試後備；換 provider 後不套用（免拿 DeepSeek key 去打別家）。
-            if (translationPreferences.provider.get() == "deepseek") BuildConfig.DEEPSEEK_API_KEY else ""
-        }
-
     /**
      * mihon 儲存位置（base）底下的 `models/` 子資料夾，使用者把三顆 NCNN 模型（.param+.bin；OCR 兩份 .param 共用一份 .bin）
      * 放這。委派共用 [TranslationEngineConfig]。
      */
     private fun modelsDir(): UniFile? = TranslationEngineConfig.modelsDir(context)
 
-    /** 翻譯開關開 + key 有設 + 模型 3 顆齊，才翻得了（給下載 hook 判斷）。模型檢查委派 [TranslationEngineConfig]。 */
+    /**
+     * Local Arabic build: translation only needs the feature switches + local OCR/inpaint models.
+     * No API key, provider, subscription, or network endpoint is required.
+     */
     fun isReady(): Boolean {
         if (!translationPreferences.translationMasterEnabled.get()) return false
         if (!translationPreferences.translationEnabled.get()) return false
-        if (apiKey().isBlank()) return false
-        if (TranslationEngineConfig.isProviderBaseMissing(translationPreferences)) return false
         return TranslationEngineConfig.modelsResolvable(context)
     }
 
@@ -93,8 +86,11 @@ class PageTranslator(private val context: Context) {
      * 跨頁流水線深度（同時在飛的頁數）：去字便宜（boxfill／即時翻）→ 深 4＝網路綁定、約 2× 循序速率；
      * 去字貴（aot／下載時 AI 去字）→ 深 2＝CPU 綁定（再深不加速，且多頁去字疊加吃記憶體）。真機 benchmark 定案。
      */
-    private fun pipelineDepth(methodRaw: String): Int =
-        if (TranslationEngineConfig.mapInpaintMethod(methodRaw) == "boxfill") 4 else 2
+    /**
+     * Local translation + OCR + AOT-GAN all use device resources.
+     * Keep chapter processing to one page at a time for stability and lower RAM usage.
+     */
+    private fun pipelineDepth(@Suppress("UNUSED_PARAMETER") methodRaw: String): Int = 1
 
     /**
      * 翻譯 [chapterDir]（UniFile，相容本機/SAF）內所有頁圖、就地覆蓋成功的頁。

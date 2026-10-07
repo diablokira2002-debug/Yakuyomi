@@ -2,7 +2,6 @@ package eu.kanade.tachiyomi.data.translation
 
 import android.content.Context
 import android.graphics.Bitmap
-import eu.kanade.tachiyomi.BuildConfig
 import eu.kanade.tachiyomi.crash.TraceLog
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -30,7 +29,7 @@ import java.util.concurrent.atomic.AtomicInteger
  * 翻譯引擎的**常駐（warm）服務**（process singleton，於 [AppModule] 註冊）。
  *
  * 用途：讓整章翻（[PageTranslator.translateChapter] 逐章透過本服務）共用**同一顆**引擎實例，
- * 避免佇列一章接一章 drain 時、每章 `Yakuyomi.create(...).use { }` 都重載 ~100MB native + 重編譯 ORT 圖
+ * 避免佇列一章接一章 drain 時、每章 `Yakuyomi.create(...).use { }` 都重載大型本地模型
  * （M4 ⑦ 引擎生命週期）。即時翻譯開著時尤其關鍵：reader 連讀多章＝佇列連翻多章。
  *
  * **去字法可變**：[translatePage] 帶 `methodRaw` 參數（boxfill / auto_whole / auto_tile）。
@@ -38,7 +37,7 @@ import java.util.concurrent.atomic.AtomicInteger
  * （即時翻走自己的 liveInpaintMethod pref、不是固定值；本服務服務的是受管理佇列的整章翻。）
  *
  * **並發（跨頁流水線）**：warm 引擎的 [translatePage] **可並發呼叫**（偵測/OCR/翻譯/去字 session 共用、真機實測
- * 併發翻多頁不 crash、不汙染輸出）→ reader/佇列可把「頁 N 的網路翻譯」疊上「頁 N+1 的裝置端偵測/OCR」，
+ * 併發翻多頁不 crash、不汙染輸出）→ reader/佇列可復用同一個本地引擎處理多頁，
  * 淺併發（~4）達約 2× 循序速率（見 [PageTranslator] 的 pipelineDepth）。[mutex] 只序列化**引擎生命週期**
  * （建/重建/關），不再序列化每頁推論；在飛頁數由 [inFlight] 計數，關閉前等它歸零（見 [shutdown]/[shutdownBlocking]）。
  * **生命週期**：lazy 建（首次 [translatePage] 或 [warmUp] 才建、不拖 app 冷啟）；設定改了（簽章變）下次呼叫重建；
@@ -85,25 +84,16 @@ class TranslationEngineService(private val context: Context) {
     private val _warm = MutableStateFlow(false)
     val warm: StateFlow<Boolean> = _warm.asStateFlow()
 
-    /** key：優先設定頁（BYOK）；空白時 fallback build-time key（與 [PageTranslator] 同規則）。 */
-    private fun apiKey(): String =
-        translationPreferences.activeApiKey().ifBlank {
-            // baked key 只是 DeepSeek 的冒煙測試後備；換 provider 後不套用（免拿 DeepSeek key 去打別家）。
-            if (translationPreferences.provider.get() == "deepseek") BuildConfig.DEEPSEEK_API_KEY else ""
-        }
-
     /**
-     * 引擎是否就緒：key 有設 + 3 顆模型齊。給 [ChapterLoader] 決定要不要包 [TranslatingPageLoader]。
+     * Local Arabic build readiness.
      *
-     * **刻意不檢查 [TranslationPreferences.translationEnabled]**——那是「下載時翻譯章節」（離線整章翻）的開關，
-     * 手動翻的使用者常關著它；即時翻譯由 [TranslationPreferences.liveTranslate] 獨立控制（在 [ChapterLoader.shouldTranslateLive] 檢查），
-     * 故此處只看 key + 模型，否則即時翻會被 translationEnabled 靜默擋掉。
+     * Translation no longer needs an API key, cloud provider, subscription, or API base.
+     * This service is ready when the local detector/OCR/inpainting models are available.
+     *
+     * We intentionally do not check translationEnabled here because manual/live translation
+     * has its own UI gates; this method only answers whether the local engine can run.
      */
-    fun isReady(): Boolean {
-        if (apiKey().isBlank()) return false
-        if (TranslationEngineConfig.isProviderBaseMissing(translationPreferences)) return false
-        return TranslationEngineConfig.modelsResolvable(context)
-    }
+    fun isReady(): Boolean = TranslationEngineConfig.modelsResolvable(context)
 
     /**
      * 用 warm 引擎翻譯單頁，回**原始 [PageResult]**（Translated/Skipped/Failed 不收斂成 null——
@@ -111,7 +101,7 @@ class TranslationEngineService(private val context: Context) {
      *
      * 不 recycle 輸入 [src]（所有權屬呼叫端）；成功時 [PageResult.Translated.page] 是引擎產出的新 bitmap。
      *
-     * 引擎建不起來（缺模型/缺 key/建構例外）→ 回 [PageResult.Failed]（不丟例外）：呼叫端把它當「該頁失敗、留原圖」處理，
+     * 引擎建不起來（缺模型/建構例外）→ 回 [PageResult.Failed]（不丟例外）：呼叫端把它當「該頁失敗、留原圖」處理，
      * 不會誤把原圖蓋掉、也不會中斷整章迴圈（§11）。
      *
      * **並發**：只在 [mutex] 下短暫「確保引擎已建（模型 SAF→filesDir 複製也在此）＋ [inFlight]++」，
@@ -135,7 +125,7 @@ class TranslationEngineService(private val context: Context) {
             inFlight.incrementAndGet() // 在鎖下註冊 → 關閉不會在註冊中途插入而漏算在飛頁
             if (!warmedUp) {
                 // 冷引擎首次推論：整段持鎖跑（其他頁在 mutex.withLock 上等），暖完設 warmedUp=true 才放行併發。
-                // 代價＝只有冷啟動後第一本的第一頁不被跨頁重疊（含一次網路往返）；換得不再撞冷 session。
+                // 代價＝只有冷啟動後第一本的第一頁不被跨頁重疊（含首次本地模型推論）；換得不再撞冷 session。
                 try {
                     e.translatePage(src).also { warmedUp = true }
                 } catch (ex: Throwable) {
@@ -208,7 +198,9 @@ class TranslationEngineService(private val context: Context) {
             // 去字法照呼叫端傳入（佇列逐章帶來的去字法），其餘參數（語言/緒數/排版…）照使用者設定。
             val cfg = TranslationEngineConfig.buildEngineConfig(translationPreferences, methodRaw)
             TraceLog.log("svc", "ensureEngine.create.start")
-            val built = Yakuyomi.create(bundle.models, bundle.alphabet, apiKey(), cfg)
+            // Local translator: apiKey is retained only in Yakuyomi.create's compatibility API.
+            // The forked engine ignores it and runs English -> Arabic translation on-device.
+            val built = Yakuyomi.create(bundle.models, bundle.alphabet, "", cfg)
             TraceLog.log("svc", "ensureEngine.create.done")
             engine = built
             builtSignature = signature
@@ -232,25 +224,15 @@ class TranslationEngineService(private val context: Context) {
      * 影響引擎建構的設定 + 去字法的簽章。值變了＝要重建引擎（設定/去字法即時生效）。
      * 去字法（[methodRaw]）納入 → 章與章間換去字法會重建；其餘語言/緒數/OCR/排版等改了也重建。
      *
-     * **維護鐵則：本清單必須涵蓋 [TranslationEngineConfig.buildEngineConfig] 讀到的每一個 pref**
-     * （＋ [apiKey]，它不在 buildEngineConfig 裡、是另外傳給 `Yakuyomi.create`）。
-     * 漏一個＝改了那個設定卻沿用 warm 引擎、舊值繼續生效（曾漏 provider/model/apiBase/temperature →
-     * 使用者在設定換 model 後請求仍打舊 model、持續 HTTP 400；改 API key 反而生效，只因 key 有在簽章裡）。
-     * 日後在 buildEngineConfig 加讀任何 pref，**同時**在此加一行；順序刻意對齊 buildEngineConfig 的分區。
+     * Keep this signature aligned with preferences that actually affect
+     * [TranslationEngineConfig.buildEngineConfig]. Cloud provider/API preferences are deliberately
+     * excluded in this local-only build because they no longer affect the engine.
      */
     private fun configSignature(methodRaw: String): String {
         val p = translationPreferences
         return listOf(
             methodRaw, // 去字法納入簽章：換去字法 → 重建引擎
-            // —— LLM（TranslatorConfig）：換 provider/model/apiBase/temperature 都要重建才會套用 ——
-            apiKey(), // 不經 buildEngineConfig，另外直接餵 Yakuyomi.create
-            p.provider.get(),
-            p.model.get(),
-            p.apiBase.get(),
-            p.temperature.get(),
-            p.thinking.get().toString(), // 思考模式（per-provider 參數映射）→ 換了要重建才會套用
-            p.targetLangName.get(), // 也決定要不要清掉引擎內建 few-shot
-            p.sourceLangName.get(),
+            // Local translator is fixed to English -> Arabic; cloud/API preferences are ignored.
             // —— 偵測（DetectorConfig）——
             p.segThreshold.get(),
             p.detectUnsharp.get().toString(),

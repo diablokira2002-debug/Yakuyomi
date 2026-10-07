@@ -6,7 +6,6 @@ import com.hippo.unifile.UniFile
 import li.joye.yakuyomi.engine.DetectorConfig
 import li.joye.yakuyomi.engine.EngineConfig
 import li.joye.yakuyomi.engine.InpainterConfig
-import li.joye.yakuyomi.engine.LlmProviders
 import li.joye.yakuyomi.engine.ModelSet
 import li.joye.yakuyomi.engine.OcrConfig
 import li.joye.yakuyomi.engine.RenderConfig
@@ -178,13 +177,10 @@ object TranslationEngineConfig {
     }
 
     /**
-     * 自架 / 自訂 provider（sakura/custom）是否缺 API base。給 isReady 擋下——base 空＝聊天端點空＝必失敗，
-     * 與其讓整章標 Failed，不如 isReady 先回 false（不啟動）。內建端點的 provider 一律回 false（不受影響）。
+     * Kept for source compatibility with older app code.
+     * The Arabic local build does not use an online provider/API base.
      */
-    fun isProviderBaseMissing(prefs: TranslationPreferences): Boolean {
-        val preset = LlmProviders.byId(prefs.provider.get())
-        return preset.baseEditable && prefs.apiBase.get().isBlank()
-    }
+    fun isProviderBaseMissing(@Suppress("UNUSED_PARAMETER") prefs: TranslationPreferences): Boolean = false
 
     /**
      * 各模型「是否存在」（逐顆，給設定頁顯示模型狀態 / BYOM 排錯 / 診斷「未啟動」）。
@@ -265,35 +261,19 @@ object TranslationEngineConfig {
      * 進階數值 parse + clamp、改目標語言時清掉內建 few-shot。
      */
     fun buildEngineConfig(prefs: TranslationPreferences, methodRaw: String): EngineConfig {
-        // 供應商：解析預設表 → 聊天端點 + 模型（per-provider，見引擎 LlmProviders / 設定頁）。
-        // 全 OpenAI 相容（含 Gemini 的 compat 端點）⇒ LlmTranslator 不變，只是換 apiBase/model。
-        val preset = LlmProviders.byId(prefs.provider.get())
-        val chatUrl = LlmProviders.chatUrlOf(preset, prefs.apiBase.get())
-        // 語言對（預設日→繁中）。改目標語言就清掉引擎內建的日→繁中 few-shot，免得範例語言跟新目標衝突、把輸出帶偏。
-        val target = prefs.targetLangName.get()
-        // LLM 取樣溫度（存字串、parse + clamp 到 0.0–1.0；預設 0.3）。
-        val temperature = prefs.temperature.get().toDoubleOrNull()?.coerceIn(0.0, 1.0) ?: 0.3
-        var translatorCfg = TranslatorConfig(
-            provider = preset.id,
-            model = prefs.model.get().ifBlank { preset.defaultModel },
-            // base 空（自架/自訂未填）→ isReady 已擋；萬一漏 → LlmTranslator 拋例外標 Failed（不靜默）。
-            apiBase = chatUrl,
-            toLangName = target,
-            fromLangName = prefs.sourceLangName.get(),
-            temperature = temperature,
-            // 思考模式（預設關）：欄位形狀 per-provider，由引擎 LlmProviders.requestParams 映射。
-            thinking = prefs.thinking.get(),
+        // Local-only English -> Arabic translator.
+        // Provider/model/API settings are intentionally ignored.
+        val translatorCfg = TranslatorConfig(
+            targetLang = "AR",
+            toLangName = "Arabic",
+            fromLangName = "English",
+            sampleSource = "",
+            sampleTarget = "",
+            thinking = false,
         )
-        if (target != TranslationPreferences.DEFAULT_TARGET_LANG) {
-            translatorCfg = translatorCfg.copy(sampleSource = "", sampleTarget = "")
-        }
 
-        // 排版方向
-        val orient = when (prefs.orientation.get()) {
-            "vertical" -> TextOrientation.VERTICAL
-            "horizontal" -> TextOrientation.HORIZONTAL
-            else -> TextOrientation.AUTO
-        }
+        // Arabic is always horizontal/RTL. Ignore the old CJK vertical/auto preference.
+        val orient = TextOrientation.HORIZONTAL
 
         // 去字方法（boxfill / aot）
         val method = mapInpaintMethod(methodRaw)
