@@ -1,10 +1,11 @@
 name: CI
+# Compile-check the app on pushes/PRs and allow manual builds from the Actions tab.
 
-# 每次 push / PR 驗證 app 能否正常編譯（含以 submodule 引入的翻譯引擎）。
 on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -14,9 +15,10 @@ jobs:
   build:
     name: Build app
     runs-on: ubuntu-latest
+
     steps:
-      # 翻譯引擎是 git submodule（公開），要 recursive 才抓得到（composite build 依賴它）。
-      - uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
         with:
           submodules: recursive
 
@@ -35,7 +37,14 @@ jobs:
       - name: Make gradlew executable
         run: chmod +x ./gradlew
 
-      # debug build，不帶 -Pinclude-telemetry / -Penable-updater（免 Firebase/google-services、updater）。
-      # gitignored 的 api-keys / local.properties 缺檔有後備（key→空字串、SDK→ANDROID_HOME），CI 不需提供。
-      - name: Build (compile check)
+      - name: Build debug APK
         run: ./gradlew :app:assembleDebug --no-daemon --stacktrace
+
+      - name: Upload debug APK
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Yakuyomi-Arabic-debug
+          path: app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+          retention-days: 14
