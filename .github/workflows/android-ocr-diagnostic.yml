@@ -35,6 +35,22 @@ jobs:
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
 
+      - name: Validate reference images
+        run: |
+          mkdir -p diagnostic-results
+          missing=0
+          for n in 01 02 03 04 05; do
+            file=".github/diagnostics/android-ocr/app/src/androidTest/assets/chapter35_${n}.jpg"
+            if [ ! -s "$file" ]; then
+              echo "MISSING: $file" | tee -a diagnostic-results/preflight.txt
+              missing=1
+            fi
+          done
+          if [ "$missing" -ne 0 ]; then
+            echo "OCR image test could not run; missing real reference images. Do not treat this as an OCR accuracy failure." | tee -a diagnostic-results/preflight.txt
+            exit 1
+          fi
+
       - name: Run Chapter 35 OCR diagnostic
         uses: reactivecircus/android-emulator-runner@v2
         with:
@@ -50,12 +66,18 @@ jobs:
             TEST_STATUS=$?
 
             mkdir -p diagnostic-results
-            REPORT_PATH="$(adb shell find /sdcard/Android/data/li.joye.yakuyomi.ocrdiagnostic/files -name yakuyomi-ocr-diagnostic.txt 2>/dev/null | tr -d '\r' | head -n 1)"
-            if [ -n "$REPORT_PATH" ]; then
-              adb pull "$REPORT_PATH" diagnostic-results/yakuyomi-ocr-diagnostic.txt || true
-            fi
+            adb pull /sdcard/Android/data/li.joye.yakuyomi.ocrdiagnostic/files/diagnostics/yakuyomi-ocr-diagnostic.txt diagnostic-results/yakuyomi-ocr-diagnostic.txt || true
             adb logcat -d -s YakuyomiOcrDiag:I '*:S' > diagnostic-results/logcat.txt || true
             exit $TEST_STATUS
+
+      - name: Preserve Android instrumentation reports
+        if: always()
+        run: |
+          mkdir -p diagnostic-results
+          src=".github/diagnostics/android-ocr/app/build/reports/androidTests/connected"
+          if [ -d "$src" ]; then cp -R "$src" diagnostic-results/android-reports; fi
+          src=".github/diagnostics/android-ocr/app/build/outputs/androidTest-results/connected"
+          if [ -d "$src" ]; then cp -R "$src" diagnostic-results/android-results; fi
 
       - name: Upload diagnostic evidence
         if: always()
