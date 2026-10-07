@@ -1,3 +1,4 @@
 [submodule "yakuyomi-engine"]
 	path = yakuyomi-engine
-	url = https://github.com/joyeli/yakuyomi-engine.git
+	url = https://github.com/diablokira2002-debug/yakuyomi-engine.git
+	branch = main
