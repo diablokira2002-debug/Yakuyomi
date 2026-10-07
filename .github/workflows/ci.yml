@@ -1,5 +1,4 @@
 name: CI
-# Compile-check the app on pushes/PRs and allow manual builds from the Actions tab.
 
 on:
   push:
@@ -28,8 +27,11 @@ jobs:
           distribution: temurin
           java-version: "21"
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+      - name: Show Android SDK
+        run: |
+          echo "ANDROID_HOME=$ANDROID_HOME"
+          echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT"
+          test -d "$ANDROID_HOME" || test -d "$ANDROID_SDK_ROOT"
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
@@ -40,11 +42,22 @@ jobs:
       - name: Build debug APK
         run: ./gradlew :app:assembleDebug --no-daemon --stacktrace
 
-      - name: Upload debug APK
-        if: success()
+      - name: Keep only the universal APK
+        run: |
+          mkdir -p single-apk
+          APK="$(find app/build/outputs/apk/debug -type f -name '*universal*.apk' | head -n 1)"
+          if [ -z "$APK" ]; then
+            echo "Universal APK not found. Available APKs:"
+            find app/build/outputs/apk/debug -type f -name '*.apk' -print
+            exit 1
+          fi
+          cp "$APK" single-apk/Yakuyomi-Arabic.apk
+          ls -lh single-apk/Yakuyomi-Arabic.apk
+
+      - name: Upload one APK
         uses: actions/upload-artifact@v4
         with:
-          name: Yakuyomi-Arabic-debug
-          path: app/build/outputs/apk/debug/*.apk
+          name: Yakuyomi-Arabic
+          path: single-apk/Yakuyomi-Arabic.apk
           if-no-files-found: error
           retention-days: 14
