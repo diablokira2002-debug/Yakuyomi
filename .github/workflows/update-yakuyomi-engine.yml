@@ -1,0 +1,44 @@
+name: Update Yakuyomi engine pointer
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  update-engine:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Yakuyomi
+        uses: actions/checkout@v4
+        with:
+          submodules: false
+          fetch-depth: 0
+
+      - name: Configure Git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Sync submodule URL
+        run: |
+          git submodule sync -- yakuyomi-engine
+          git submodule update --init yakuyomi-engine
+
+      - name: Point submodule to latest engine fork main
+        run: |
+          git -C yakuyomi-engine fetch origin main
+          git -C yakuyomi-engine checkout --detach origin/main
+          echo "Engine commit:"
+          git -C yakuyomi-engine rev-parse HEAD
+
+      - name: Commit updated engine pointer
+        run: |
+          git add .gitmodules yakuyomi-engine
+          if git diff --cached --quiet; then
+            echo "Submodule already points to the latest engine commit."
+          else
+            git commit -m "Use local Arabic yakuyomi-engine fork"
+            git push
+          fi
