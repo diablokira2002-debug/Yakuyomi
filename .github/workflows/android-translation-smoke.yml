@@ -36,17 +36,15 @@ jobs:
           profile: pixel_6
           disable-animations: true
           disk-size: 6G
-          script: |
-            set +e
-            chmod +x ./gradlew
-            ./gradlew -p .github/diagnostics/android-ocr :app:connectedDebugAndroidTest \
-              -Pandroid.testInstrumentationRunnerArguments.class=li.joye.yakuyomi.ocrdiagnostic.ArabicTranslationSmokeTest \
-              --no-daemon --stacktrace
-            status=$?
-            mkdir -p diagnostic-results
-            adb pull /sdcard/Android/data/li.joye.yakuyomi.ocrdiagnostic/files/diagnostics/arabic-smoke.txt diagnostic-results/arabic-smoke.txt || true
-            adb logcat -d -s YakuyomiArabicDiag:I '*:S' > diagnostic-results/translation-logcat.txt || true
-            exit $status
+          script: >-
+            bash -c 'set +e;
+            chmod +x ./gradlew;
+            ./gradlew -p .github/diagnostics/android-ocr :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=li.joye.yakuyomi.ocrdiagnostic.ArabicTranslationSmokeTest --no-daemon --stacktrace;
+            status=$?;
+            mkdir -p diagnostic-results;
+            adb pull /sdcard/Android/data/li.joye.yakuyomi.ocrdiagnostic/files/diagnostics/arabic-smoke.txt diagnostic-results/arabic-smoke.txt || true;
+            adb logcat -d -s YakuyomiArabicDiag:I "*:S" > diagnostic-results/translation-logcat.txt || true;
+            exit $status'
       - name: Preserve instrumented test results
         if: always()
         run: |
