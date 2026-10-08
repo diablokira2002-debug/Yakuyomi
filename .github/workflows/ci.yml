@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, arabic-v2]
   pull_request:
   workflow_dispatch:
 
@@ -12,7 +12,7 @@ concurrency:
 
 jobs:
   build:
-    name: Build app
+    name: Build signed app
     runs-on: ubuntu-latest
 
     steps:
@@ -39,25 +39,52 @@ jobs:
       - name: Make gradlew executable
         run: chmod +x ./gradlew
 
-      - name: Build debug APK
-        run: ./gradlew :app:assembleDebug --no-daemon --stacktrace
+      - name: Prepare stable signing key
+        env:
+          KEYSTORE_B64: ${{ secrets.YAKUYOMI_KEYSTORE_B64 }}
+          STORE_PASSWORD: ${{ secrets.YAKUYOMI_STORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.YAKUYOMI_KEY_ALIAS }}
+        run: |
+          set -euo pipefail
+          test -n "$KEYSTORE_B64"
+          test -n "$STORE_PASSWORD"
+          test -n "$KEY_ALIAS"
+
+          printf '%s' "$KEYSTORE_B64" | base64 -d > "$GITHUB_WORKSPACE/yakuyomi-release.jks"
+          cat > "$GITHUB_WORKSPACE/keystore.properties" <<EOF
+          storeFile=../yakuyomi-release.jks
+          storePassword=$STORE_PASSWORD
+          keyAlias=$KEY_ALIAS
+          keyPassword=$STORE_PASSWORD
+          EOF
+
+      - name: Run translation engine unit tests
+        run: ./gradlew -p yakuyomi-engine :engine:testDebugUnitTest --no-daemon --stacktrace
+
+      - name: Build signed release APK
+        run: ./gradlew :app:assembleRelease --no-daemon --stacktrace
 
       - name: Keep only the universal APK
         run: |
           mkdir -p single-apk
-          APK="$(find app/build/outputs/apk/debug -type f -name '*universal*.apk' | head -n 1)"
+          APK="$(find app/build/outputs/apk/release -type f -name '*universal*.apk' | head -n 1)"
           if [ -z "$APK" ]; then
-            echo "Universal APK not found. Available APKs:"
-            find app/build/outputs/apk/debug -type f -name '*.apk' -print
+            echo "Universal release APK not found. Available APKs:"
+            find app/build/outputs/apk/release -type f -name '*.apk' -print
             exit 1
           fi
-          cp "$APK" single-apk/Yakuyomi-Arabic.apk
-          ls -lh single-apk/Yakuyomi-Arabic.apk
+          cp "$APK" single-apk/Yakuyomi-Arabic-Signed.apk
+          ls -lh single-apk/Yakuyomi-Arabic-Signed.apk
 
-      - name: Upload one APK
+      - name: Verify APK signature
+        run: |
+          APKSIGNER="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
+          "$APKSIGNER" verify --verbose --print-certs single-apk/Yakuyomi-Arabic-Signed.apk
+
+      - name: Upload one signed APK
         uses: actions/upload-artifact@v4
         with:
-          name: Yakuyomi-Arabic
-          path: single-apk/Yakuyomi-Arabic.apk
+          name: Yakuyomi-Arabic-Signed
+          path: single-apk/Yakuyomi-Arabic-Signed.apk
           if-no-files-found: error
           retention-days: 14
