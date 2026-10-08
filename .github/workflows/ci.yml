@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, arabic-v2]
   pull_request:
   workflow_dispatch:
 
@@ -57,6 +57,9 @@ jobs:
           keyAlias=$KEY_ALIAS
           keyPassword=$STORE_PASSWORD
           EOF
+
+      - name: Run translation engine unit tests
+        run: ./gradlew -p yakuyomi-engine :engine:testDebugUnitTest --no-daemon --stacktrace
 
       - name: Build signed release APK
         run: ./gradlew :app:assembleRelease --no-daemon --stacktrace
