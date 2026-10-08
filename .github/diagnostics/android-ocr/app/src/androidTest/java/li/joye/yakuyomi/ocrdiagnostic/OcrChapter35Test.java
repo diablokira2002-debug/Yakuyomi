@@ -9,6 +9,7 @@ import android.graphics.Rect;
 import android.util.Log;
 
 import androidx.test.core.app.ApplicationProvider;
+import androidx.test.platform.app.InstrumentationRegistry;
 import androidx.test.ext.junit.runners.AndroidJUnit4;
 
 import com.google.android.gms.tasks.Tasks;
@@ -46,32 +47,30 @@ public class OcrChapter35Test {
 
     private static final Map<String, List<String>> EXPECTED = new LinkedHashMap<>();
     static {
-        EXPECTED.put("chapter35_01.jpg", Arrays.asList(
-            "SOMETHING'S REALLY STRANGE ABOUT THIS PLACE.",
-            "THE COLORS ARE ALL FADED, JUST LIKE OLD PAINT..."
+        EXPECTED.put("005__002.jpg", Arrays.asList(
+            "SHE'LL DO FINE.",
+            "SHE'S A SMART WOMAN."
         ));
-        EXPECTED.put("chapter35_02.jpg", Arrays.asList(
-            "I CAN FEEL AN OMINOUS PRESENCE FROM INSIDE...",
-            "BUT..."
+        EXPECTED.put("006__002.jpg", Arrays.asList(
+            "BUT THAT'S FINE."
         ));
-        EXPECTED.put("chapter35_03.jpg", Arrays.asList(
-            "WEREN'T YOU TREMBLING BECAUSE YOU WERE SCARED?",
-            "I MEAN IT, I'LL BE RIGHT BACK."
+        EXPECTED.put("010__001.jpg", Arrays.asList(
+            "IS THIS REALM ENTIRELY UNDER YOUR DOMINION?"
         ));
-        EXPECTED.put("chapter35_04.jpg", Arrays.asList(
-            "THERE'S NOWHERE TO RUN HERE.",
-            "I'LL PUT YOU DOWN, STAY HERE.",
-            "I'LL BE RIGHT BACK... UGH."
+        EXPECTED.put("013__002.jpg", Arrays.asList(
+            "I TOLD YOU.",
+            "IT'S ALWAYS BALANCED."
         ));
-        EXPECTED.put("chapter35_05.jpg", Arrays.asList(
-            "LIKE THE TEA ROOM BEING COMPLETELY EMPTY,",
-            "OR SEEING FURNITURE AND DECORATIONS I'VE NEVER NOTICED BEFORE."
+        EXPECTED.put("016__002.jpg", Arrays.asList(
+            "THIS TIME"
         ));
     }
 
     @Test
     public void chapter35LatinOcrAndTranslationDiagnostic() throws Exception {
         Context context = ApplicationProvider.getApplicationContext();
+        // Instrumentation assets live in the TEST APK, not the target app APK.
+        Context fixtureContext = InstrumentationRegistry.getInstrumentation().getContext();
         TextRecognizer recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS);
         Translator translator = Translation.getClient(
             new TranslatorOptions.Builder()
@@ -81,7 +80,7 @@ public class OcrChapter35Test {
         );
 
         StringBuilder report = new StringBuilder();
-        report.append("Yakuyomi Chapter 35 OCR diagnostic\n");
+        report.append("Yakuyomi user-provided real screenshot OCR diagnostic\n");
         report.append("Device ABI=").append(android.os.Build.SUPPORTED_ABIS[0]).append("\n");
         report.append("Android=").append(android.os.Build.VERSION.SDK_INT).append("\n\n");
 
@@ -103,7 +102,7 @@ public class OcrChapter35Test {
         try {
             for (Map.Entry<String, List<String>> entry : EXPECTED.entrySet()) {
                 String asset = entry.getKey();
-                Bitmap page = BitmapFactory.decodeStream(context.getAssets().open(asset));
+                Bitmap page = BitmapFactory.decodeStream(fixtureContext.getAssets().open(asset));
                 if (page == null) throw new IllegalStateException("Could not decode " + asset);
 
                 String full = recognize(recognizer, page);
@@ -149,7 +148,11 @@ public class OcrChapter35Test {
         }
 
         assertTrue(
-            "At least one supplied Chapter 35 phrase was not recovered by tiled/upscaled ML Kit OCR. " +
+            "The English to Arabic ML Kit model could not be downloaded; see diagnostic report.",
+            translationReady
+        );
+        assertTrue(
+            "At least one supplied screenshot phrase was not recovered by tiled/upscaled ML Kit OCR. " +
             "See yakuyomi-ocr-diagnostic.txt artifact.",
             allExpectedFound
         );
