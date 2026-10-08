@@ -1,4 +1,4 @@
-name: Android OCR Diagnostic
+name: Android Real-Page OCR Diagnostic
 
 on:
   workflow_dispatch:
@@ -10,7 +10,7 @@ on:
 
 jobs:
   chapter35:
-    name: Chapter 35 OCR on Android emulator
+    name: User sample OCR on Android emulator
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
@@ -35,23 +35,30 @@ jobs:
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
 
+      - name: Prepare user-provided real screenshot images
+        run: |
+          dst=".github/diagnostics/android-ocr/app/src/androidTest/assets"
+          zip=".github/diagnostics/android-ocr/app/src/androidTest/samples.zip"
+          mkdir -p "$dst"
+          if [ -f "$zip" ]; then unzip -j -o "$zip" '*.jpg' -d "$dst"; fi
+
       - name: Validate reference images
         run: |
           mkdir -p diagnostic-results
           missing=0
-          for n in 01 02 03 04 05; do
-            file=".github/diagnostics/android-ocr/app/src/androidTest/assets/chapter35_${n}.jpg"
+          for n in 005__002 006__002 010__001 013__002 016__002; do
+            file=".github/diagnostics/android-ocr/app/src/androidTest/assets/${n}.jpg"
             if [ ! -s "$file" ]; then
               echo "MISSING: $file" | tee -a diagnostic-results/preflight.txt
               missing=1
             fi
           done
           if [ "$missing" -ne 0 ]; then
-            echo "OCR image test could not run; missing real reference images. Do not treat this as an OCR accuracy failure." | tee -a diagnostic-results/preflight.txt
+            echo "Real screenshot assets are missing. Upload samples.zip to .github/diagnostics/android-ocr/app/src/androidTest/. This is NOT an OCR accuracy failure." | tee -a diagnostic-results/preflight.txt
             exit 1
           fi
 
-      - name: Run Chapter 35 OCR diagnostic
+      - name: Run real sample OCR diagnostic
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 35
@@ -83,7 +90,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: Chapter35-OCR-Diagnostic
+          name: Real-Screenshots-OCR-Diagnostic
           path: diagnostic-results/
           if-no-files-found: warn
           retention-days: 14
