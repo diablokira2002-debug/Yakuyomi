@@ -74,6 +74,9 @@ object SettingsTranslationScreen : SearchableSettings {
         val prefs = remember { Injekt.get<TranslationPreferences>() }
         // 首次開啟翻譯設定 → 自動帶出快速上手導覽一次（之後可從頂端「快速上手」列重開）。
         LaunchedEffect(Unit) {
+            // Arabic V2 has one simple language mode: Automatic source -> Arabic.
+            prefs.sourceLangName.set(TranslationPreferences.DEFAULT_SOURCE_LANG)
+            prefs.targetLangName.set(TranslationPreferences.DEFAULT_TARGET_LANG)
             if (!prefs.quickstartShown.get()) {
                 prefs.quickstartShown.set(true)
                 navigator.push(TranslationQuickstartScreen())
@@ -291,29 +294,10 @@ object SettingsTranslationScreen : SearchableSettings {
         }.toImmutableMap()
 
         val targetLangs = persistentMapOf(
-            TranslationPreferences.DEFAULT_TARGET_LANG to stringResource(MR.strings.pref_translation_lang_trad_chinese),
-            "Japanese" to stringResource(MR.strings.pref_translation_lang_japanese),
-            "Simplified Chinese" to stringResource(MR.strings.pref_translation_lang_simp_chinese),
-            "English" to stringResource(MR.strings.pref_translation_lang_english),
-            "Korean" to stringResource(MR.strings.pref_translation_lang_korean),
-            "Spanish" to stringResource(MR.strings.pref_translation_lang_spanish),
-            "French" to stringResource(MR.strings.pref_translation_lang_french),
-            "German" to stringResource(MR.strings.pref_translation_lang_german),
-            "Portuguese" to stringResource(MR.strings.pref_translation_lang_portuguese),
-            "Russian" to stringResource(MR.strings.pref_translation_lang_russian),
+            TranslationPreferences.DEFAULT_TARGET_LANG to "العربية",
         )
         val sourceLangs = persistentMapOf(
-            "" to stringResource(MR.strings.pref_translation_lang_auto_detect),
-            TranslationPreferences.DEFAULT_SOURCE_LANG to stringResource(MR.strings.pref_translation_lang_japanese),
-            TranslationPreferences.DEFAULT_TARGET_LANG to stringResource(MR.strings.pref_translation_lang_trad_chinese),
-            "Simplified Chinese" to stringResource(MR.strings.pref_translation_lang_simp_chinese),
-            "English" to stringResource(MR.strings.pref_translation_lang_english),
-            "Korean" to stringResource(MR.strings.pref_translation_lang_korean),
-            "Spanish" to stringResource(MR.strings.pref_translation_lang_spanish),
-            "French" to stringResource(MR.strings.pref_translation_lang_french),
-            "German" to stringResource(MR.strings.pref_translation_lang_german),
-            "Portuguese" to stringResource(MR.strings.pref_translation_lang_portuguese),
-            "Russian" to stringResource(MR.strings.pref_translation_lang_russian),
+            TranslationPreferences.DEFAULT_SOURCE_LANG to stringResource(MR.strings.pref_translation_lang_auto_detect),
         )
 
         // 常駐頂層（不受總開關隱藏）：快速上手導覽 + 啟用翻譯總開關（從「翻譯」組移到頂層）。
@@ -482,89 +466,8 @@ object SettingsTranslationScreen : SearchableSettings {
                     ),
                 ).toImmutableList(),
             ),
-            // —— 供應商（LLM）——
-            Preference.PreferenceGroup(
-                title = stringResource(MR.strings.pref_translation_group_provider),
-                preferenceItems = listOfNotNull<Item>(
-                    Preference.PreferenceItem.ListPreference(
-                        preference = prefs.provider,
-                        entries = providerEntries,
-                        title = stringResource(MR.strings.pref_translation_provider),
-                        subtitle = stringResource(MR.strings.pref_translation_provider_summary),
-                        onValueChanged = { _ ->
-                            prefs.model.set("")
-                            true
-                        },
-                    ),
-                    Preference.PreferenceItem.EditTextPreference(
-                        preference = prefs.apiBase,
-                        title = stringResource(MR.strings.pref_translation_api_base),
-                        subtitle = stringResource(MR.strings.pref_translation_api_base_summary),
-                    ).takeIf { providerPreset.baseEditable },
-                    Preference.PreferenceItem.EditTextPreference(
-                        preference = prefs.apiKeyFor(providerId),
-                        title = stringResource(MR.strings.pref_translation_api_key),
-                        subtitle = stringResource(
-                            MR.strings.pref_translation_api_key_summary,
-                            providerPreset.displayName,
-                        ),
-                    ),
-                    Preference.PreferenceItem.EditTextPreference(
-                        preference = prefs.model,
-                        title = stringResource(MR.strings.pref_translation_model),
-                        subtitle = modelVal.ifBlank {
-                            stringResource(
-                                MR.strings.pref_translation_model_default_summary,
-                                providerPreset.defaultModel,
-                            )
-                        },
-                    ),
-                    Preference.PreferenceItem.TextPreference(
-                        title = stringResource(MR.strings.pref_translation_fetch_models),
-                        subtitle = if (fetchingModels) {
-                            stringResource(MR.strings.pref_translation_fetching)
-                        } else {
-                            stringResource(MR.strings.pref_translation_fetch_models_summary)
-                        },
-                        onClick = {
-                            if (!fetchingModels) {
-                                scope.launch {
-                                    fetchingModels = true
-                                    val url = LlmProviders.modelsUrlOf(providerPreset, prefs.apiBase.get())
-                                    val list = LlmModels.list(
-                                        url,
-                                        providerPreset.modelSource,
-                                        prefs.apiKeyFor(providerId).get(),
-                                    )
-                                    fetchingModels = false
-                                    if (list.isEmpty()) {
-                                        context.toast(
-                                            context.ctxStringResource(MR.strings.pref_translation_fetch_models_empty),
-                                        )
-                                    } else {
-                                        modelPicker = list.map { it.id }
-                                    }
-                                }
-                            }
-                        },
-                    ),
-                    // LLM 取樣溫度：低＝更一致貼字直譯、高＝更靈活但可能偏離；多數人不用動（進階、存字串 parse+clamp 0–1）。
-                    adv(
-                        showAdvanced,
-                        prefs.temperature,
-                        stringResource(MR.strings.pref_translation_temperature),
-                        stringResource(MR.strings.pref_translation_temperature_desc) + curSuffix,
-                        advBadge,
-                    ),
-                    // 思考模式（預設關）：逐行翻譯從思考得到的好處小、卻明顯變慢又貴。改了會讓引擎重建（簽章有納入）。
-                    Preference.PreferenceItem.SwitchPreference(
-                        preference = prefs.thinking,
-                        title = stringResource(MR.strings.pref_translation_thinking),
-                        subtitle = stringResource(MR.strings.pref_translation_thinking_summary),
-                        titleBadge = advBadge,
-                    ).takeIf { showAdvanced },
-                ).toImmutableList(),
-            ),
+            // Arabic V2 is fully local: no provider, API key, paid plan, model selector,
+            // temperature, or reasoning settings are shown here.
             // —— 語言 ——
             Preference.PreferenceGroup(
                 title = stringResource(MR.strings.pref_translation_group_language),

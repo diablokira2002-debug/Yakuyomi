@@ -1,0 +1,96 @@
+name: Android Real-Page OCR Diagnostic
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [arabic-v2]
+    paths:
+      - ".github/diagnostics/android-ocr/**"
+      - ".github/workflows/android-ocr-diagnostic.yml"
+
+jobs:
+  chapter35:
+    name: User sample OCR on Android emulator
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: false
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Prepare user-provided real screenshot images
+        run: |
+          dst=".github/diagnostics/android-ocr/app/src/androidTest/assets"
+          zip=".github/diagnostics/android-ocr/app/src/androidTest/samples.zip"
+          mkdir -p "$dst"
+          if [ -f "$zip" ]; then unzip -j -o "$zip" '*.jpg' -d "$dst"; fi
+
+      - name: Validate reference images
+        run: |
+          mkdir -p diagnostic-results
+          missing=0
+          for n in 005__002 006__002 010__001 013__002 016__002; do
+            file=".github/diagnostics/android-ocr/app/src/androidTest/assets/${n}.jpg"
+            if [ ! -s "$file" ]; then
+              echo "MISSING: $file" | tee -a diagnostic-results/preflight.txt
+              missing=1
+            fi
+          done
+          if [ "$missing" -ne 0 ]; then
+            echo "Real screenshot assets are missing. Upload samples.zip to .github/diagnostics/android-ocr/app/src/androidTest/. This is NOT an OCR accuracy failure." | tee -a diagnostic-results/preflight.txt
+            exit 1
+          fi
+
+      - name: Run real sample OCR diagnostic
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          profile: pixel_6
+          disable-animations: true
+          disk-size: 6G
+          script: |
+            set +e
+            chmod +x ./gradlew
+            ./gradlew -p .github/diagnostics/android-ocr :app:connectedDebugAndroidTest --no-daemon --stacktrace
+            TEST_STATUS=$?
+
+            mkdir -p diagnostic-results
+            adb pull /sdcard/Android/data/li.joye.yakuyomi.ocrdiagnostic/files/diagnostics/yakuyomi-ocr-diagnostic.txt diagnostic-results/yakuyomi-ocr-diagnostic.txt || true
+            adb logcat -d -s YakuyomiOcrDiag:I '*:S' > diagnostic-results/logcat.txt || true
+            exit $TEST_STATUS
+
+      - name: Preserve Android instrumentation reports
+        if: always()
+        run: |
+          mkdir -p diagnostic-results
+          src=".github/diagnostics/android-ocr/app/build/reports/androidTests/connected"
+          if [ -d "$src" ]; then cp -R "$src" diagnostic-results/android-reports; fi
+          src=".github/diagnostics/android-ocr/app/build/outputs/androidTest-results/connected"
+          if [ -d "$src" ]; then cp -R "$src" diagnostic-results/android-results; fi
+
+      - name: Upload diagnostic evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Real-Screenshots-OCR-Diagnostic
+          path: diagnostic-results/
+          if-no-files-found: warn
+          retention-days: 14

@@ -1,0 +1,63 @@
+name: Android Arabic Translation Smoke
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [arabic-v2]
+    paths:
+      - ".github/diagnostics/android-ocr/app/src/androidTest/java/li/joye/yakuyomi/ocrdiagnostic/ArabicTranslationSmokeTest.java"
+      - ".github/diagnostics/android-ocr/app/build.gradle"
+      - ".github/workflows/android-translation-smoke.yml"
+
+jobs:
+  local-translation:
+    name: English to Arabic on Android emulator
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: false
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Test ML Kit Arabic translation on emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          profile: pixel_6
+          disable-animations: true
+          disk-size: 6G
+          script: >-
+            bash -c 'set +e;
+            chmod +x ./gradlew;
+            ./gradlew -p .github/diagnostics/android-ocr :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=li.joye.yakuyomi.ocrdiagnostic.ArabicTranslationSmokeTest --no-daemon --stacktrace;
+            status=$?;
+            mkdir -p diagnostic-results;
+            adb pull /sdcard/Android/data/li.joye.yakuyomi.ocrdiagnostic/files/diagnostics/arabic-smoke.txt diagnostic-results/arabic-smoke.txt || true;
+            adb logcat -d -s YakuyomiArabicDiag:I "*:S" > diagnostic-results/translation-logcat.txt || true;
+            exit $status'
+      - name: Preserve instrumented test results
+        if: always()
+        run: |
+          mkdir -p diagnostic-results
+          src=".github/diagnostics/android-ocr/app/build/reports/androidTests/connected"
+          if [ -d "$src" ]; then cp -R "$src" diagnostic-results/android-reports; fi
+          src=".github/diagnostics/android-ocr/app/build/outputs/androidTest-results/connected"
+          if [ -d "$src" ]; then cp -R "$src" diagnostic-results/android-results; fi
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Arabic-Translation-Smoke-Results
+          path: diagnostic-results/
+          if-no-files-found: warn
+          retention-days: 14

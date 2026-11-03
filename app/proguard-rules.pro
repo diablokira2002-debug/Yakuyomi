@@ -95,3 +95,10 @@
     public <init>();
     public void destroy();
 }
+
+
+# ML Kit uses runtime component discovery/factories that R8 cannot always infer.
+# Keep the ML Kit implementation intact in release builds; otherwise Language ID
+# can construct a Factory with stripped dependencies and fail at runtime.
+-keep class com.google.mlkit.** { *; }
+-keep interface com.google.mlkit.** { *; }

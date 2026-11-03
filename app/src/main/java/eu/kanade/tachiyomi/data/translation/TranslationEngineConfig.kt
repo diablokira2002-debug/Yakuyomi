@@ -261,12 +261,12 @@ object TranslationEngineConfig {
      * 進階數值 parse + clamp、改目標語言時清掉內建 few-shot。
      */
     fun buildEngineConfig(prefs: TranslationPreferences, methodRaw: String): EngineConfig {
-        // Local-only English -> Arabic translator.
+        // Local-only automatic-source -> Arabic translator.
         // Provider/model/API settings are intentionally ignored.
         val translatorCfg = TranslatorConfig(
             targetLang = "AR",
             toLangName = "Arabic",
-            fromLangName = "English",
+            fromLangName = "",
             sampleSource = "",
             sampleTarget = "",
             thinking = false,

@@ -106,10 +106,10 @@ class TranslationPreferences(
     /** 是否已看過翻譯快速上手導覽（首次開啟翻譯設定時自動跳一次；之後可從設定列重開）。 */
     val quickstartShown = preferenceStore.getBoolean("translation_quickstart_shown", false)
 
-    /** 目標語言（LLM 直接照這個翻）；預設台灣繁中，對齊引擎 TranslatorConfig.toLangName。 */
+    /** 目標語言；Arabic V2 固定預設 العربية，對齊引擎 TranslatorConfig.toLangName。 */
     val targetLangName = preferenceStore.getString("translation_target_lang", DEFAULT_TARGET_LANG)
 
-    /** 來源語言標註（進 prompt；留空＝讓 LLM 自己判。實際來源由 OCR 模型決定＝BYOM）。 */
+    /** 來源語言；空字串＝Automatic。Arabic V2 由裝置端 Language ID 在 OCR 後自動判斷。 */
     val sourceLangName = preferenceStore.getString("translation_source_lang", DEFAULT_SOURCE_LANG)
 
     /** 排版方向（auto/vertical/horizontal），對應引擎 RenderConfig.orientation。 */
@@ -209,9 +209,9 @@ class TranslationPreferences(
         // ⚠️ 與引擎 TranslatorConfig.toLangName / fromLangName 預設「逐字一致」（引擎＝真理來源）。
         //   鏡像而非共用：本類在 :domain，:domain 不依賴引擎（只 :app 依賴）→ 不能 import 引擎常數。
         //   改一邊請同步改 engine/Config.kt，否則 few-shot 保留/清除判斷會 drift。
-        /** 預設目標＝台灣繁中。非此值時 PageTranslator 不放引擎內建的日→繁中 few-shot（避免範例語言衝突）。 */
-        const val DEFAULT_TARGET_LANG = "Traditional Chinese (Taiwan, 台灣慣用的繁體中文用語)"
-        const val DEFAULT_SOURCE_LANG = "Japanese"
+        /** Arabic V2：目標固定 العربية；來源預設 Automatic（空字串）。 */
+        const val DEFAULT_TARGET_LANG = "Arabic"
+        const val DEFAULT_SOURCE_LANG = ""
         const val DEFAULT_ORIENTATION = "auto"
         const val DEFAULT_INPAINT_METHOD = "auto_whole" // 下載/手動翻＝AI 去字（引擎把非 boxfill 一律當 aot·整頁 768）
 
